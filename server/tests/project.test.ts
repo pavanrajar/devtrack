@@ -2,6 +2,7 @@
 import { describe, it, expect } from 'vitest'
 import request from 'supertest'
 import app from '../src/app'
+import { getAuthToken } from './helpers/auth-cookie'
 
 const registerUser = async (email: string): Promise<string> => {
   const response = await request(app)
@@ -12,7 +13,7 @@ const registerUser = async (email: string): Promise<string> => {
       password: 'TestPassword@123',
     })
 
-  return response.body.data.token as string
+  return getAuthToken(response.headers['set-cookie'])
 }
 
 const createTeam = async (
@@ -225,6 +226,54 @@ describe('Project API', () => {
       .send({ email: 'outsider@test.local' })
 
     expect(response.status).toBe(404)
+    expect(response.body.success).toBe(false)
+  })
+
+  it('should allow a project manager to remove a project member', async () => {
+    const ownerToken = await registerUser('removememberowner@test.local')
+    const memberToken = await registerUser('removedprojectmember@test.local')
+
+    const teamId = await createTeam(ownerToken)
+    await addTeamMember(ownerToken, teamId, 'removedprojectmember@test.local')
+
+    const projectResponse = await createProject(ownerToken, teamId)
+    const projectId = projectResponse.body.data.id as string
+    await request(app)
+      .post(`/api/projects/${projectId}/members`)
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .send({ email: 'removedprojectmember@test.local' })
+
+    const profileResponse = await request(app)
+      .get('/api/auth/me')
+      .set('Authorization', `Bearer ${memberToken}`)
+    const memberId = profileResponse.body.data.id as string
+
+    const response = await request(app)
+      .delete(`/api/projects/${projectId}/members/${memberId}`)
+      .set('Authorization', `Bearer ${ownerToken}`)
+
+    expect(response.status).toBe(200)
+    const membersResponse = await request(app)
+      .get(`/api/projects/${projectId}/members`)
+      .set('Authorization', `Bearer ${ownerToken}`)
+    expect(membersResponse.body.data).toHaveLength(1)
+  })
+
+  it('should prevent removing the last project manager', async () => {
+    const token = await registerUser('lastprojectmanager@test.local')
+    const teamId = await createTeam(token)
+    const projectResponse = await createProject(token, teamId)
+    const projectId = projectResponse.body.data.id as string
+    const profileResponse = await request(app)
+      .get('/api/auth/me')
+      .set('Authorization', `Bearer ${token}`)
+    const managerId = profileResponse.body.data.id as string
+
+    const response = await request(app)
+      .delete(`/api/projects/${projectId}/members/${managerId}`)
+      .set('Authorization', `Bearer ${token}`)
+
+    expect(response.status).toBe(409)
     expect(response.body.success).toBe(false)
   })
 

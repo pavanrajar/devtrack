@@ -6,7 +6,9 @@ import {
   getProjectById,
   updateProject as updateProjectService,
   archiveProject as archiveProjectService,
+  getProjectMembers,
   addProjectMember as addProjectMemberService,
+  removeProjectMember as removeProjectMemberService,
 } from '../services/project.service'
 import {
   CreateProjectInput,
@@ -79,6 +81,18 @@ export const archiveProject: RequestHandler = async (req, res) => {
   })
 }
 
+export const listProjectMembers: RequestHandler = async (req, res) => {
+  const members = await getProjectMembers(
+    req.params.projectId as string,
+    req.user!.id,
+  )
+
+  res.status(200).json({
+    success: true,
+    data: members,
+  })
+}
+
 export const addProjectMember: RequestHandler = async (req, res) => {
   const member = await addProjectMemberService(
     req.params.projectId as string,
@@ -90,5 +104,18 @@ export const addProjectMember: RequestHandler = async (req, res) => {
     success: true,
     message: 'Project member added successfully',
     data: member,
+  })
+}
+
+export const removeProjectMember: RequestHandler = async (req, res) => {
+  const result = await removeProjectMemberService(
+    req.params.projectId as string,
+    req.params.userId as string,
+    req.user!.id,
+  )
+
+  res.status(200).json({
+    success: true,
+    ...result,
   })
 }

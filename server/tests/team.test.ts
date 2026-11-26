@@ -2,6 +2,7 @@
 import { describe, it, expect } from 'vitest'
 import request from 'supertest'
 import app from '../src/app'
+import { getAuthToken } from './helpers/auth-cookie'
 
 const registerUser = async (email: string) => {
   const response = await request(app)
@@ -12,7 +13,7 @@ const registerUser = async (email: string) => {
       password: 'TestPassword@123',
     })
 
-  return response.body.data.token as string
+  return getAuthToken(response.headers['set-cookie'])
 }
 
 describe('Team API', () => {
@@ -104,6 +105,96 @@ describe('Team API', () => {
       })
 
     expect(response.status).toBe(403)
+    expect(response.body.success).toBe(false)
+  })
+
+  it('should allow the owner to remove a regular team member', async () => {
+    const ownerToken = await registerUser('removeowner@teamtest.local')
+    const memberToken = await registerUser('removemember@teamtest.local')
+    const teamResponse = await request(app)
+      .post('/api/teams')
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .send({ name: 'Removal Test Team' })
+    const teamId = teamResponse.body.data.id as string
+    const memberProfile = await request(app)
+      .get('/api/auth/me')
+      .set('Authorization', `Bearer ${memberToken}`)
+    const memberId = memberProfile.body.data.id as string
+
+    await request(app)
+      .post(`/api/teams/${teamId}/members`)
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .send({ email: 'removemember@teamtest.local', role: 'member' })
+
+    const response = await request(app)
+      .delete(`/api/teams/${teamId}/members/${memberId}`)
+      .set('Authorization', `Bearer ${ownerToken}`)
+
+    expect(response.status).toBe(200)
+    const listResponse = await request(app)
+      .get(`/api/teams/${teamId}/members`)
+      .set('Authorization', `Bearer ${ownerToken}`)
+    expect(listResponse.body.data).toHaveLength(1)
+  })
+
+  it('should prevent removing the team owner', async () => {
+    const ownerToken = await registerUser('protectowner@teamtest.local')
+    const teamResponse = await request(app)
+      .post('/api/teams')
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .send({ name: 'Owner Protection Team' })
+    const teamId = teamResponse.body.data.id as string
+    const ownerProfile = await request(app)
+      .get('/api/auth/me')
+      .set('Authorization', `Bearer ${ownerToken}`)
+    const ownerId = ownerProfile.body.data.id as string
+
+    const response = await request(app)
+      .delete(`/api/teams/${teamId}/members/${ownerId}`)
+      .set('Authorization', `Bearer ${ownerToken}`)
+
+    expect(response.status).toBe(409)
+    expect(response.body.success).toBe(false)
+  })
+
+  it('should block team removal while the member has assigned tasks', async () => {
+    const ownerToken = await registerUser('assignedowner@teamtest.local')
+    const memberToken = await registerUser('assignedmember@teamtest.local')
+    const teamResponse = await request(app)
+      .post('/api/teams')
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .send({ name: 'Assigned Work Team' })
+    const teamId = teamResponse.body.data.id as string
+
+    await request(app)
+      .post(`/api/teams/${teamId}/members`)
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .send({ email: 'assignedmember@teamtest.local', role: 'member' })
+
+    const projectResponse = await request(app)
+      .post(`/api/teams/${teamId}/projects`)
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .send({ name: 'Assigned Work Project' })
+    const projectId = projectResponse.body.data.id as string
+    await request(app)
+      .post(`/api/projects/${projectId}/members`)
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .send({ email: 'assignedmember@teamtest.local' })
+
+    const memberProfile = await request(app)
+      .get('/api/auth/me')
+      .set('Authorization', `Bearer ${memberToken}`)
+    const memberId = memberProfile.body.data.id as string
+    await request(app)
+      .post(`/api/projects/${projectId}/tasks`)
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .send({ title: 'Assigned task', assignedTo: memberId })
+
+    const response = await request(app)
+      .delete(`/api/teams/${teamId}/members/${memberId}`)
+      .set('Authorization', `Bearer ${ownerToken}`)
+
+    expect(response.status).toBe(409)
     expect(response.body.success).toBe(false)
   })
 })

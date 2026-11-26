@@ -14,7 +14,9 @@ export const pool = new Pool({
 })
 
 pool.on('error', (error) => {
-  console.error('Unexpected PostgreSQL pool error:', error)
+  console.error('Unexpected PostgreSQL pool error:', {
+    name: error.name,
+  })
 })
 
 
@@ -24,7 +26,16 @@ export const connectDatabase = async (): Promise<void> => {
     await pool.query('SELECT 1')
     console.log('PostgreSQL connected successfully')
   } catch (error) {
-    console.error('PostgreSQL connection failed:', error)
+    console.error('PostgreSQL connection failed:', {
+      name: error instanceof Error ? error.name : 'UnknownError',
+      code:
+        typeof error === 'object' &&
+        error !== null &&
+        'code' in error &&
+        typeof error.code === 'string'
+          ? error.code
+          : undefined,
+    })
     throw error
   }
 }

@@ -8,10 +8,9 @@ import projectRouter from './routes/project.routes'
 import taskRouter from './routes/task.routes'
 import errorHandler from './middleware/error.middleware'
 import commentRouter from './routes/comment.routes'
-
-
 import cors from 'cors'
 import { env } from './config/env'
+import csrfProtection from './middleware/csrf.middleware'
 
 const app = express()
 
@@ -23,6 +22,7 @@ app.use(cors({
 }))
 
 app.use(express.json())
+app.use(csrfProtection)
 
 app.use('/health', healthRouter)
 app.use('/api/auth', authRouter)

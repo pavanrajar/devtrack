@@ -26,6 +26,7 @@ const envSchema = z.object({
 
   JWT_SECRET: z.string().min(32),
   JWT_EXPIRES_IN: z.string().default('1d'),
+  COOKIE_SECURE: z.enum(['true', 'false']).optional(),
 
   CLIENT_URL: z.string().url(),
 })

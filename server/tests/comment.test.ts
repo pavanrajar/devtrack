@@ -2,6 +2,7 @@
 import { describe, it, expect } from 'vitest'
 import request from 'supertest'
 import app from '../src/app'
+import { getAuthToken } from './helpers/auth-cookie'
 
 const registerUser = async (email: string): Promise<string> => {
   const response = await request(app)
@@ -12,7 +13,7 @@ const registerUser = async (email: string): Promise<string> => {
       password: 'TestPassword@123',
     })
 
-  return response.body.data.token as string
+  return getAuthToken(response.headers['set-cookie'])
 }
 
 const createTeam = async (token: string): Promise<string> => {

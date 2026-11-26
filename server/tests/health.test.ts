@@ -12,4 +12,12 @@ describe('GET /health', () => {
     expect(response.body.message).toBe('DevTrack API is running')
     expect(response.body.timestamp).toBeDefined()
   })
+
+  it('should report readiness when the database is reachable', async () => {
+    const response = await request(app).get('/health/ready')
+
+    expect(response.status).toBe(200)
+    expect(response.body.success).toBe(true)
+    expect(response.body.status).toBe('ready')
+  })
 })

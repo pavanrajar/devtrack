@@ -24,7 +24,28 @@ const handleDatabaseError = (error: unknown): never => {
 
   throw error
 }
+export const getProjectMembers = async (
+  projectId: string,
+  userId: string,
+) => {
+  await getProjectAccess(projectId, userId)
 
+  const result = await pool.query(
+    `SELECT
+       u.id,
+       u.full_name,
+       u.email,
+       pm.role,
+       pm.joined_at
+     FROM project_members pm
+     INNER JOIN users u ON u.id = pm.user_id
+     WHERE pm.project_id = $1
+     ORDER BY pm.joined_at ASC`,
+    [projectId],
+  )
+
+  return result.rows
+}
 export const getProjectAccess = async (projectId: string, userId: string) => {
   const result = await pool.query(
     `SELECT
@@ -305,6 +326,81 @@ export const addProjectMember = async (
       throw httpError('This user is already a project member', 409)
     }
 
+    throw error
+  } finally {
+    client.release()
+  }
+}
+
+export const removeProjectMember = async (
+  projectId: string,
+  userId: string,
+  actorId: string,
+) => {
+  const { canManage } = await getProjectAccess(projectId, actorId)
+
+  if (!canManage) {
+    throw httpError('You do not have permission to manage project members', 403)
+  }
+
+  const client = await pool.connect()
+
+  try {
+    await client.query('BEGIN')
+    await client.query(
+      'SELECT id FROM projects WHERE id = $1 FOR UPDATE',
+      [projectId],
+    )
+
+    const membership = await client.query(
+      `SELECT role
+       FROM project_members
+       WHERE project_id = $1 AND user_id = $2
+       FOR UPDATE`,
+      [projectId, userId],
+    )
+
+    if (membership.rowCount === 0) {
+      throw httpError('Project member not found', 404)
+    }
+
+    if (membership.rows[0].role === 'manager') {
+      const managers = await client.query(
+        `SELECT COUNT(*) AS count
+         FROM project_members
+         WHERE project_id = $1 AND role = 'manager'`,
+        [projectId],
+      )
+
+      if (Number(managers.rows[0].count) <= 1) {
+        throw httpError('A project must retain at least one manager', 409)
+      }
+    }
+
+    const assignedTasks = await client.query(
+      `SELECT COUNT(*) AS count
+       FROM tasks
+       WHERE project_id = $1 AND assigned_to = $2`,
+      [projectId, userId],
+    )
+
+    if (Number(assignedTasks.rows[0].count) > 0) {
+      throw httpError(
+        'Reassign this member’s tasks before removing them from the project',
+        409,
+      )
+    }
+
+    await client.query(
+      `DELETE FROM project_members
+       WHERE project_id = $1 AND user_id = $2`,
+      [projectId, userId],
+    )
+
+    await client.query('COMMIT')
+    return { message: 'Project member removed successfully' }
+  } catch (error) {
+    await client.query('ROLLBACK')
     throw error
   } finally {
     client.release()

@@ -1,0 +1,11 @@
+.git
+.env
+.env.*
+**/node_modules
+**/dist
+**/coverage
+**/.vite
+**/.cache
+**/logs
+**/*.log
+npm-debug.log*

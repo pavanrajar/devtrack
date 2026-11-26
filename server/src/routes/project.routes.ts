@@ -9,7 +9,9 @@ import {
   getProject,
   updateProject,
   archiveProject,
+  listProjectMembers,
   addProjectMember,
+  removeProjectMember,
 } from '../controllers/project.controller'
 import {
   createProjectSchema,
@@ -56,11 +58,24 @@ router.patch(
   archiveProject,
 )
 
+router.get(
+  '/projects/:projectId/members',
+  validateUuidParam('projectId'),
+  listProjectMembers,
+)
+
 router.post(
   '/projects/:projectId/members',
   validateUuidParam('projectId'),
   validate(addProjectMemberSchema),
   addProjectMember,
+)
+
+router.delete(
+  '/projects/:projectId/members/:userId',
+  validateUuidParam('projectId'),
+  validateUuidParam('userId'),
+  removeProjectMember,
 )
 
 export default router

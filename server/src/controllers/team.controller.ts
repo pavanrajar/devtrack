@@ -3,7 +3,9 @@ import { RequestHandler } from 'express'
 import {
   createTeam as createTeamService,
   getUserTeams,
+  getTeamMembers,
   addTeamMember as addTeamMemberService,
+  removeTeamMember as removeTeamMemberService,
 } from '../services/team.service'
 import {
   CreateTeamInput,
@@ -22,7 +24,6 @@ export const createTeam: RequestHandler = async (req, res) => {
     data: team,
   })
 }
-
 export const listTeams: RequestHandler = async (req, res) => {
   const teams = await getUserTeams(req.user!.id)
 
@@ -32,6 +33,24 @@ export const listTeams: RequestHandler = async (req, res) => {
   })
 }
 
+export const listTeamMembers: RequestHandler = async (req, res) => {
+  const teamId = req.params.teamId
+
+  if (typeof teamId !== 'string') {
+    res.status(400).json({
+      success: false,
+      message: 'Invalid team ID',
+    })
+    return
+  }
+
+  const members = await getTeamMembers(teamId)
+
+  res.status(200).json({
+    success: true,
+    data: members,
+  })
+}
 
 export const addTeamMember: RequestHandler = async (req, res) => {
   const teamId = req.params.teamId
@@ -61,6 +80,37 @@ export const addTeamMember: RequestHandler = async (req, res) => {
     success: true,
     message: 'Team member added successfully',
     data: member,
+  })
+}
+
+export const removeTeamMember: RequestHandler = async (req, res) => {
+  const { teamId, userId } = req.params
+
+  if (typeof teamId !== 'string' || typeof userId !== 'string') {
+    res.status(400).json({
+      success: false,
+      message: 'Invalid team member identifiers',
+    })
+    return
+  }
+
+  if (req.teamRole !== 'owner' && req.teamRole !== 'admin') {
+    res.status(403).json({
+      success: false,
+      message: 'You do not have permission to remove team members',
+    })
+    return
+  }
+
+  const result = await removeTeamMemberService(
+    teamId,
+    userId,
+    req.teamRole,
+  )
+
+  res.status(200).json({
+    success: true,
+    ...result,
   })
 }
 

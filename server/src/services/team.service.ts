@@ -66,6 +66,30 @@ export const getUserTeams = async (userId: string) => {
   return result.rows
 }
 
+export const getTeamMembers = async (teamId: string) => {
+  const result = await pool.query(
+    `SELECT
+       u.id,
+       u.full_name,
+       u.email,
+       tm.role,
+       tm.joined_at
+     FROM team_members tm
+     INNER JOIN users u ON u.id = tm.user_id
+     WHERE tm.team_id = $1
+     ORDER BY
+       CASE tm.role
+         WHEN 'owner' THEN 0
+         WHEN 'admin' THEN 1
+         ELSE 2
+       END,
+       tm.joined_at ASC`,
+    [teamId],
+  )
+
+  return result.rows
+}
+
 export const addTeamMember = async (
   teamId: string,
   input: AddTeamMemberInput,
@@ -107,5 +131,102 @@ export const addTeamMember = async (
     }
 
     throw error
+  }
+}
+
+export const removeTeamMember = async (
+  teamId: string,
+  userId: string,
+  actorRole: 'owner' | 'admin',
+) => {
+  const client = await pool.connect()
+
+  try {
+    await client.query('BEGIN')
+
+    const membership = await client.query(
+      `SELECT role
+       FROM team_members
+       WHERE team_id = $1 AND user_id = $2
+       FOR UPDATE`,
+      [teamId, userId],
+    )
+
+    if (membership.rowCount === 0) {
+      throw createHttpError('Team member not found', 404)
+    }
+
+    const targetRole = membership.rows[0].role as 'owner' | 'admin' | 'member'
+
+    if (targetRole === 'owner') {
+      throw createHttpError('The team owner cannot be removed', 409)
+    }
+
+    if (actorRole === 'admin' && targetRole === 'admin') {
+      throw createHttpError('Only the team owner can remove an admin', 403)
+    }
+
+    const assignedTasks = await client.query(
+      `SELECT COUNT(*) AS count
+       FROM tasks t
+       INNER JOIN projects p ON p.id = t.project_id
+       WHERE p.team_id = $1 AND t.assigned_to = $2`,
+      [teamId, userId],
+    )
+
+    if (Number(assignedTasks.rows[0].count) > 0) {
+      throw createHttpError(
+        'Reassign this member’s tasks before removing them from the team',
+        409,
+      )
+    }
+
+    const lastManagedProject = await client.query(
+      `SELECT p.id
+       FROM projects p
+       INNER JOIN project_members target
+         ON target.project_id = p.id AND target.user_id = $2
+       WHERE p.team_id = $1
+         AND target.role = 'manager'
+         AND NOT EXISTS (
+           SELECT 1
+           FROM project_members other_manager
+           WHERE other_manager.project_id = p.id
+             AND other_manager.role = 'manager'
+             AND other_manager.user_id <> $2
+         )
+       LIMIT 1`,
+      [teamId, userId],
+    )
+
+    if ((lastManagedProject.rowCount ?? 0) > 0) {
+      throw createHttpError(
+        'Assign another manager to this member’s projects before removing them',
+        409,
+      )
+    }
+
+    await client.query(
+      `DELETE FROM project_members pm
+       USING projects p
+       WHERE pm.project_id = p.id
+         AND p.team_id = $1
+         AND pm.user_id = $2`,
+      [teamId, userId],
+    )
+
+    await client.query(
+      `DELETE FROM team_members
+       WHERE team_id = $1 AND user_id = $2`,
+      [teamId, userId],
+    )
+
+    await client.query('COMMIT')
+    return { message: 'Team member removed successfully' }
+  } catch (error) {
+    await client.query('ROLLBACK')
+    throw error
+  } finally {
+    client.release()
   }
 }
